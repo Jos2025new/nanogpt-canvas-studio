@@ -27,3 +27,7 @@ The browser verification also confirmed the insert menu creates an Image node di
 ## Library redesign verification
 
 The library now renders as a compact, scrollable screen with a restrained header, search field, status and sort selects, Grid/List toggle, bulk-selection controls, and per-canvas Open/Rename/Delete icon actions. Browser verification confirmed the compact card row and List mode switch. The single visible canvas leaves intentional breathing room; additional canvases stack into the scroll container.
+
+## Node operations verification
+
+Browser verification confirms every visible reference node now exposes an Attach/replace button and a contextual menu with Rename, Duplicate, Copy prompt, and Delete. Internal controls no longer trigger node dragging. The top-left control now opens Recent activity with a direct Open Canvas Library action. Canvas screenshots show clearer connector paths and larger free movement bounds.

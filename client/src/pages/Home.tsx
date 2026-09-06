@@ -126,7 +126,8 @@ function ArtPreview({ tone, image, compact = false, nodeType = "image", text }: 
   );
 }
 
-function CanvasReferenceCard({ reference, onRemove, onAdd }: { reference: Reference; onRemove: () => void; onAdd?: () => void }) {
+function CanvasReferenceCard({ reference, onRemove, onAdd, onRename, onDuplicate, onCopy }: { reference: Reference; onRemove: () => void; onAdd?: () => void; onRename: () => void; onDuplicate: () => void; onCopy: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="reference-card">
       <div className="reference-card-head">
@@ -134,14 +135,15 @@ function CanvasReferenceCard({ reference, onRemove, onAdd }: { reference: Refere
           <ImageIcon size={14} />
           <span>{reference.name}</span>
         </div>
-        <button className="icon-button tiny" aria-label={`Eliminar ${reference.name}`} onClick={onRemove}>
+        <button className="icon-button tiny" aria-label={`Node actions for ${reference.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={() => setMenuOpen((value) => !value)}>
           <MoreHorizontal size={15} />
         </button>
+        {menuOpen && <div className="node-actions-menu" onPointerDown={(event) => event.stopPropagation()}><button onClick={() => { onRename(); setMenuOpen(false); }}>Rename</button><button onClick={() => { onDuplicate(); setMenuOpen(false); }}>Duplicate</button><button onClick={() => { onCopy(); setMenuOpen(false); }}>Copy prompt</button><button className="danger" onClick={() => { onRemove(); setMenuOpen(false); }}>Delete</button></div>}
       </div>
       <ArtPreview tone={reference.tone} image={reference.image} nodeType={reference.nodeType} text={reference.text} />
       {onAdd && (
-        <button className="node-add" aria-label="Añadir conexión" onClick={onAdd}>
-          <Plus size={14} />
+        <button className="node-add" aria-label={`Attach or replace ${reference.name}`} title="Attach or replace content" onPointerDown={(event) => event.stopPropagation()} onClick={onAdd}>
+          <Paperclip size={12} />
         </button>
       )}
     </div>
@@ -183,6 +185,7 @@ export default function Home() {
   const [autoMode, setAutoMode] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [nodeMenuOpen, setNodeMenuOpen] = useState(false);
+  const [replaceNodeId, setReplaceNodeId] = useState<string | null>(null);
   const [spent, setSpent] = useState(() => Number(localStorage.getItem("nanogpt-canvas-spent") || 0));
   const [generationCount, setGenerationCount] = useState(() => Number(localStorage.getItem("nanogpt-canvas-generations") || 0));
   const [brokenConnections, setBrokenConnections] = useState<string[]>([]);
@@ -296,7 +299,8 @@ export default function Home() {
   function pointerPosition(event: React.PointerEvent) {
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return { x: 0, y: 0 };
-    return { x: ((event.clientX - bounds.left) / bounds.width) * 100, y: ((event.clientY - bounds.top) / bounds.height) * 100 };
+    const scale = zoom / 100;
+    return { x: (((event.clientX - bounds.left - canvasOffset.x) / scale) / bounds.width) * 100, y: (((event.clientY - bounds.top - canvasOffset.y) / scale) / bounds.height) * 100 };
   }
 
   function startNodeDrag(event: React.PointerEvent, id: string) {
@@ -314,7 +318,7 @@ export default function Home() {
   function moveNode(event: React.PointerEvent) {
     if (!draggingNode) return;
     const point = pointerPosition(event);
-    setNodePositions((current) => ({ ...current, [draggingNode]: { x: Math.max(1, Math.min(66, dragOriginRef.current.nodeX + point.x - dragOriginRef.current.x)), y: Math.max(7, Math.min(78, dragOriginRef.current.nodeY + point.y - dragOriginRef.current.y)) } }));
+    setNodePositions((current) => ({ ...current, [draggingNode]: { x: Math.max(1, Math.min(88, dragOriginRef.current.nodeX + point.x - dragOriginRef.current.x)), y: Math.max(4, Math.min(88, dragOriginRef.current.nodeY + point.y - dragOriginRef.current.y)) } }));
   }
 
   function endNodeDrag() {
@@ -384,8 +388,14 @@ export default function Home() {
         nodeType: file.type.startsWith("video/") ? "video" as const : "image" as const,
         image: file.type.startsWith("video/") ? URL.createObjectURL(file) : await compressImage(file),
       })));
-      setReferences((current) => [...current, ...uploaded].slice(-3));
-      setNotice(`${uploaded.length} reference${uploaded.length > 1 ? "s" : ""} ready`);
+      if (replaceNodeId && uploaded[0]) {
+        setReferences((current) => current.map((reference) => reference.id === replaceNodeId ? { ...uploaded[0], id: replaceNodeId } : reference));
+        setReplaceNodeId(null);
+        setNotice("Node content replaced");
+      } else {
+        setReferences((current) => [...current, ...uploaded].slice(-3));
+        setNotice(`${uploaded.length} reference${uploaded.length > 1 ? "s" : ""} ready`);
+      }
     } catch {
       setNotice("Could not read that image");
     } finally {
@@ -408,6 +418,40 @@ export default function Home() {
     setNodeMenuOpen(false);
     setNotice("Choose a video file to add a video node");
     fileInputRef.current?.click();
+  }
+
+  function attachToNode(id: string) {
+    setReplaceNodeId(id);
+    setNotice("Choose a file to replace this node content");
+    fileInputRef.current?.click();
+  }
+
+  function renameNode(id: string) {
+    const node = references.find((reference) => reference.id === id);
+    const name = window.prompt("Node name", node?.name || "Node");
+    if (name?.trim()) {
+      commit();
+      setReferences((current) => current.map((reference) => reference.id === id ? { ...reference, name: name.trim() } : reference));
+      setNotice("Node renamed");
+    }
+  }
+
+  function duplicateNode(id: string) {
+    const node = references.find((reference) => reference.id === id);
+    if (!node) return;
+    commit();
+    const copy = { ...node, id: createId(), name: `${node.name} copy` };
+    setReferences((current) => [...current, copy].slice(-3));
+    setNodePositions((current) => ({ ...current, [copy.id]: { x: Math.min(82, (current[id]?.x || 9.6) + 4), y: Math.min(86, (current[id]?.y || 14.7) + 4) } }));
+    setNotice("Node duplicated");
+  }
+
+  function copyNodePrompt(id: string) {
+    const node = references.find((reference) => reference.id === id);
+    const text = node?.text || `Use ${node?.name || "this node"} as a reference.`;
+    void navigator.clipboard?.writeText(text);
+    setPrompt((current) => `${current} ${text}`);
+    setNotice("Node instruction copied to prompt");
   }
 
   const removeReference = (id: string) => {
@@ -492,7 +536,7 @@ export default function Home() {
 
       <header className="topbar">
         <div className="brand-cluster">
-          <button className="icon-button" aria-label="Open menu"><Menu size={17} /></button>
+          <button className="icon-button" aria-label="Recent activity" title="Recent activity" onClick={() => setHistoryOpen((value) => !value)}><Menu size={17} /></button>
           <span className="crumb-chevron">⌄</span>
           <span className="brand-name">Create from Reference</span>
           <span className="cloud-dot" title="Saved locally" />
@@ -534,7 +578,7 @@ export default function Home() {
           <div className="references-column">
             {visibleReferences.map((reference, index) => (
               <div className={`canvas-node node-${index + 1} ${selectedNode === reference.id ? "is-selected" : ""}`} key={reference.id} style={{ left: `${nodePositions[reference.id]?.x ?? defaultPositions[reference.id]?.x ?? 9.6}%`, top: `${nodePositions[reference.id]?.y ?? defaultPositions[reference.id]?.y ?? 14.7}%` }} onPointerDown={(event) => startNodeDrag(event, reference.id)} onPointerMove={moveNode} onPointerUp={endNodeDrag} onPointerCancel={endNodeDrag}>
-                <CanvasReferenceCard reference={reference} onRemove={() => removeReference(reference.id)} onAdd={index === visibleReferences.length - 1 ? () => fileInputRef.current?.click() : undefined} />
+                <CanvasReferenceCard reference={reference} onRemove={() => removeReference(reference.id)} onAdd={() => attachToNode(reference.id)} onRename={() => renameNode(reference.id)} onDuplicate={() => duplicateNode(reference.id)} onCopy={() => copyNodePrompt(reference.id)} />
               </div>
             ))}
             {references.length === 0 && <button className="empty-node" onClick={() => fileInputRef.current?.click()}><Upload size={20} /><span>Drop references here</span><small>PNG, JPG or WEBP</small></button>}
@@ -545,7 +589,7 @@ export default function Home() {
             <div className={`generated-card ${isGenerating ? "is-generating" : ""}`}>
               {resultSource ? <img src={resultSource} alt="Generated result" className="result-image" /> : <div className="result-placeholder"><div className="placeholder-orb orb-one" /><div className="placeholder-orb orb-two" /><div className="placeholder-person"><span /><b /><i /></div><span className="placeholder-copy">{isGenerating ? "nanoGPT" : "RESULT"}</span></div>}
               {isGenerating && <div className="generation-progress"><span /><em>Creating image…</em></div>}
-              <div className="result-actions"><button className="result-action" aria-label="Crop" onClick={() => setEditMode((value) => !value)}><Crop size={15} /></button><button className="result-action" aria-label="Edit prompt" onClick={() => { setEditMode(true); setPrompt((value) => `${value} Refine the composition with a cleaner editorial finish.`); }}><Pencil size={15} /></button><button className="result-action" aria-label="Download" onClick={() => resultSource && window.open(resultSource, "_blank")}><Download size={15} /></button><button className="result-action" aria-label="Open" onClick={() => resultSource && window.open(resultSource, "_blank")}><ArrowUpRight size={15} /></button></div>
+              <div className="result-actions"><button className="result-action" aria-label="Crop" title="Toggle edit mode" onClick={() => { setEditMode((value) => !value); setNotice("Edit mode toggled"); }}><Crop size={15} /></button><button className="result-action" aria-label="Edit prompt" title="Add refinement to prompt" onClick={() => { setEditMode(true); setPrompt((value) => `${value} Refine the composition with a cleaner editorial finish.`); setNotice("Prompt refinement added"); }}><Pencil size={15} /></button><button className="result-action" aria-label="Download" title="Download result" onClick={() => resultSource ? window.open(resultSource, "_blank") : setNotice("Generate an image before downloading")}><Download size={15} /></button><button className="result-action" aria-label="Open" title="Open result" onClick={() => resultSource ? window.open(resultSource, "_blank") : setNotice("Generate an image before opening")}><ArrowUpRight size={15} /></button></div>
               {editMode && <div className="edit-strip"><span><Crop size={12} /> Edit mode</span><button onClick={() => setPrompt((value) => `${value} Keep the subject centered and preserve the reference identity.`)}>Preserve identity</button><button onClick={() => setPrompt((value) => `${value} Increase soft contrast and warm studio light.`)}>Warm light</button><button onClick={() => setEditMode(false)}><X size={13} /></button></div>}
             </div>
             <div className="output-meta"><span className="connection-dot" /> nanoGPT <span>·</span> {selectedModel} <span>·</span> {formatOptions.find((item) => item.value === selectedFormat)?.label}</div>
@@ -562,7 +606,7 @@ export default function Home() {
             {generated && <div className="chat-bubble"><span className="bubble-label">You</span><p>{prompt}</p></div>}
             {!generated && <div className="chat-suggestions"><button onClick={() => setPrompt("A cinematic editorial portrait, soft studio lighting, muted warm tones, 35mm grain.")}>Editorial portrait <ArrowUpRight size={13} /></button><button onClick={() => setPrompt("A dreamy product scene with a single subject, soft shadows, architectural composition.")}>Dreamy product scene <ArrowUpRight size={13} /></button></div>}
           </div>
-          {historyOpen && <div className="history-popover"><div className="history-popover-head"><span>Canvas history</span><button onClick={() => setHistory([])}><Trash2 size={12} /> Clear</button></div>{history.length === 0 ? <p>No changes yet. Move a node, upload a reference or edit the prompt.</p> : history.slice().reverse().map((item, index) => <button className="history-item" key={`${index}-${item.prompt.slice(0, 8)}`} onClick={() => { restore(item); setHistoryOpen(false); setNotice("Restored canvas snapshot"); }}><History size={13} /><span>{item.references.length} references · {item.prompt.slice(0, 34)}…</span></button>)}</div>}
+          {historyOpen && <div className="history-popover"><div className="history-popover-head"><span>Recent activity</span><button onClick={() => setHistory([])}><Trash2 size={12} /> Clear</button></div><button className="history-library-link" onClick={() => { setHistoryOpen(false); setHistoryScreenOpen(true); }}><History size={13} /> Open Canvas Library <ArrowUpRight size={12} /></button>{history.length === 0 ? <p>No recent operations yet. Move a node, attach content or edit the prompt.</p> : history.slice().reverse().map((item, index) => <button className="history-item" key={`${index}-${item.prompt.slice(0, 8)}`} onClick={() => { restore(item); setHistoryOpen(false); setNotice("Restored recent snapshot"); }}><History size={13} /><span>{item.references.length} nodes · {item.prompt.slice(0, 34)}…</span></button>)}</div>}
 
           <div className="prompt-composer">
             <div className="mention-row">

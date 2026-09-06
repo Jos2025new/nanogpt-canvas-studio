@@ -92,12 +92,17 @@ button:active { transform: scale(0.97); }
 .canvas-title { position: absolute; left: 10.5%; top: 10.7%; gap: 7px; color: #b4bac2; font-size: 13px; font-weight: 540; z-index: 2; }
 .canvas-title > svg:last-child { color: #5f6873; margin-left: 3px; }
 .tiny-image-icon { width: 17px; height: 17px; display: grid; place-items: center; color: #82909e; }
-.references-column { position: absolute; left: 9.6%; top: 14.7%; bottom: 4%; width: 34%; min-width: 220px; display: block; padding: 0 0 1%; }
+.references-column { position: static; width: auto; height: auto; min-width: 0; display: block; padding: 0; }
 .canvas-node { position: absolute; width: min(350px, 100%); left: 0; cursor: grab; touch-action: none; transition: box-shadow .18s var(--ease-out); }
 .canvas-node:active { cursor: grabbing; }
 .canvas-node.is-selected { filter: drop-shadow(0 0 10px rgba(117,184,255,.35)); }
 .canvas-node.is-selected .reference-card { border-color: #79b9f5; box-shadow: 0 0 0 2px rgba(91,160,227,.18), 0 16px 32px rgba(0,0,0,.18); }
 .reference-card { position: relative; padding: 0 9px 9px; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; background: rgba(24,26,29,.94); box-shadow: 0 16px 32px rgba(0,0,0,.18); overflow: visible; }
+.reference-card-head { position: relative; }
+.node-actions-menu { position: absolute; top: 29px; right: 5px; z-index: 12; width: 134px; padding: 4px; border: 1px solid rgba(255,255,255,.16); border-radius: 6px; background: rgba(28,31,35,.98); box-shadow: 0 12px 28px rgba(0,0,0,.42); }
+.node-actions-menu button { width: 100%; padding: 6px 7px; border: 0; border-radius: 4px; background: transparent; color: #becbd6; font-size: 10px; text-align: left; cursor: pointer; }
+.node-actions-menu button:hover { background: rgba(126,190,247,.14); }
+.node-actions-menu button.danger { color: #dca59b; }
 .reference-card:hover { border-color: rgba(135,193,255,.55); }
 .reference-card-head { height: 34px; display: flex; align-items: center; justify-content: space-between; }
 .reference-label { display: flex; align-items: center; min-width: 0; gap: 6px; color: #9ba5b0; font-size: 11px; }
@@ -199,6 +204,9 @@ button:active { transform: scale(0.97); }
 .history-popover { position: absolute; left: 16px; right: 16px; top: 145px; z-index: 5; padding: 10px; border: 1px solid rgba(255,255,255,.15); border-radius: 8px; background: rgba(28,31,35,.98); box-shadow: 0 16px 38px rgba(0,0,0,.35); }
 .history-popover-head { display: flex; align-items: center; justify-content: space-between; color: #d5dde5; font-size: 11px; }
 .history-popover-head button { display: flex; align-items: center; gap: 4px; border: 0; background: transparent; color: #8b98a5; font-size: 9px; cursor: pointer; }
+.history-library-link { width: 100%; display: flex; align-items: center; gap: 6px; margin-top: 8px; padding: 7px; border: 1px solid rgba(126,190,247,.2); border-radius: 5px; background: rgba(126,190,247,.08); color: #afd5f3; font-size: 10px; text-align: left; cursor: pointer; }
+.history-library-link svg:last-child { margin-left: auto; }
+.history-library-link:hover { background: rgba(126,190,247,.16); }
 .history-popover p { margin: 10px 2px 4px; color: #78838e; font-size: 10px; line-height: 1.4; }
 .history-item { width: 100%; display: flex; align-items: center; gap: 7px; margin-top: 6px; padding: 7px; border: 1px solid rgba(255,255,255,.07); border-radius: 5px; background: rgba(255,255,255,.035); color: #aeb9c4; font-size: 10px; text-align: left; cursor: pointer; }
 .history-item:hover { background: rgba(118,182,239,.1); border-color: rgba(118,182,239,.25); }
