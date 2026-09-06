@@ -17,3 +17,9 @@ The live preview was opened and tested. The settings modal opens with API key, m
 ## Comment-driven verification
 
 The new canvas name input updates the header and persists in local storage. The insert-node menu exposes Image, Video, and Text node actions; inserting a Text node visibly adds a text card and appends its instruction to the prompt. The top meter now prioritizes accumulated provider-reported spend and generation count, with provider balance shown when returned. The canvas wheel handler and +/−/0 keyboard shortcuts control zoom.
+
+## Interaction correction verification
+
+The History rail now opens a full-screen Canvas Library instead of a popover; it has filter, Grid/List view, current canvas cards, and Open canvas actions. The More options button now opens real actions for Canvas library, JSON export, and clearing local state. The preview confirms the output node is positioned in the canvas with connection cut markers, while the zoom thumb is visually reduced.
+
+The browser verification also confirmed the insert menu creates an Image node directly in the canvas, selects it, and reports “Image node inserted in canvas”; it no longer routes that action to the file attachment picker.

@@ -80,6 +80,7 @@ const defaultPositions: Record<string, NodePosition> = {
   "ref-1": { x: 9.6, y: 14.7 },
   "ref-2": { x: 9.6, y: 42.4 },
   "ref-3": { x: 9.6, y: 70.1 },
+  output: { x: 53, y: 22 },
 };
 
 function createId() {
@@ -173,6 +174,8 @@ export default function Home() {
   const [history, setHistory] = useState<CanvasState[]>([]);
   const [redoStack, setRedoStack] = useState<CanvasState[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyScreenOpen, setHistoryScreenOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [draggingNode, setDraggingNode] = useState<string | null>(null);
   const [draggingCanvas, setDraggingCanvas] = useState(false);
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
@@ -181,6 +184,9 @@ export default function Home() {
   const [nodeMenuOpen, setNodeMenuOpen] = useState(false);
   const [spent, setSpent] = useState(() => Number(localStorage.getItem("nanogpt-canvas-spent") || 0));
   const [generationCount, setGenerationCount] = useState(() => Number(localStorage.getItem("nanogpt-canvas-generations") || 0));
+  const [brokenConnections, setBrokenConnections] = useState<string[]>([]);
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const [libraryView, setLibraryView] = useState<"grid" | "list">("grid");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragOriginRef = useRef({ x: 0, y: 0, nodeX: 0, nodeY: 0 });
@@ -331,6 +337,34 @@ export default function Home() {
     setZoom((value) => Math.max(45, Math.min(130, value - event.deltaY * 0.08)));
   }
 
+  function toggleConnection(id: string) {
+    setBrokenConnections((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+    setNotice("Connection updated · double-click again to restore");
+  }
+
+  function insertMediaNode(nodeType: "image" | "video") {
+    commit();
+    const id = createId();
+    const node: Reference = { id, name: nodeType === "image" ? "Image node" : "Video node", kind: nodeType === "image" ? "Image input" : "Video input", tone: "studio", nodeType };
+    setReferences((current) => [...current, node].slice(-3));
+    setNodePositions((current) => ({ ...current, [id]: { x: 9.6, y: 42.4 } }));
+    setSelectedNode(id);
+    setNodeMenuOpen(false);
+    setNotice(`${nodeType === "image" ? "Image" : "Video"} node inserted in canvas`);
+  }
+
+  function exportCanvas() {
+    const blob = new Blob([JSON.stringify({ name: canvasName, prompt, references, generated, spent, generationCount }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${canvasName.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "canvas"}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setOptionsOpen(false);
+    setNotice("Canvas exported");
+  }
+
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     commit();
@@ -421,6 +455,12 @@ export default function Home() {
 
   const resultSource = generated?.url || generated?.dataUrl;
 
+  if (historyScreenOpen) {
+    const entries = [{ ...snapshot(), label: `${canvasName} · current` }, ...history.slice().reverse().map((item, index) => ({ ...item, label: `${item.references.length} references · version ${history.length - index}` }))];
+    const filteredEntries = entries.filter((item) => `${item.label} ${item.prompt}`.toLowerCase().includes(libraryQuery.toLowerCase()));
+    return <main className="library-screen"><header className="library-header"><button className="back-button" onClick={() => setHistoryScreenOpen(false)}>← Back to canvas</button><div><span className="eyebrow">Workspace</span><h1>Canvas library</h1><p>Browse, filter and restore the canvases you have created in this tab.</p></div><button className="primary-button" onClick={() => { setHistoryScreenOpen(false); setNotice("New canvas"); }}>+ New canvas</button></header><div className="library-toolbar"><input aria-label="Filter canvases" value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="Filter canvases…" /><div className="view-toggle"><button className={libraryView === "grid" ? "selected" : ""} onClick={() => setLibraryView("grid")}>Grid</button><button className={libraryView === "list" ? "selected" : ""} onClick={() => setLibraryView("list")}>List</button></div></div><section className={`canvas-library ${libraryView}`}>{filteredEntries.map((item, index) => <article className="library-card" key={`${item.label}-${index}`}><div className="library-card-preview"><div className="library-card-dots" /><div className="library-mini-node" /><div className="library-mini-output" /></div><div className="library-card-copy"><strong>{item.label}</strong><span>{item.prompt.slice(0, 96)}{item.prompt.length > 96 ? "…" : ""}</span><small>{item.references.length} nodes · {item.generated ? "Generated result" : "Draft"}</small></div><button onClick={() => { restore(item); setCanvasName(item.label.replace(/ · current| · version \d+/, "")); setHistoryScreenOpen(false); setNotice("Canvas restored"); }}>Open canvas</button></article>)}</section>{filteredEntries.length === 0 && <div className="library-empty"><History size={28} /><h2>No matching canvases</h2><p>Try another filter or create a new canvas.</p></div>}</main>;
+  }
+
   return (
     <main className="studio-shell">
       <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" multiple onChange={(event) => void handleFiles(event.target.files)} />
@@ -437,15 +477,15 @@ export default function Home() {
           <div className="credit-pill" title="Suma de costes reportados por nanoGPT en este canvas"><Sparkles size={14} /><span>Spent {spent > 0 ? spent.toFixed(4) : "—"}</span><small>{generationCount} gen.</small>{generated?.remainingBalance != null && <small>Bal {generated.remainingBalance.toFixed(2)}</small>}</div>
           <button className="new-chat" onClick={() => { commit(); setPrompt(""); setGenerated(null); setChatNote("What shall we create today?"); setSelectedNode(null); setNotice("New canvas"); }}><MessageSquarePlus size={14} /> New chat <span className="beta-tag">Beta</span></button>
           <button className="icon-button" aria-label="Canvas settings" onClick={() => setConfigOpen(true)}><Settings2 size={16} /></button>
-          <button className="icon-button" aria-label="More options"><MoreHorizontal size={17} /></button>
+          <div className="options-wrap"><button className="icon-button" aria-label="More options" onClick={() => setOptionsOpen((value) => !value)}><MoreHorizontal size={17} /></button>{optionsOpen && <div className="options-menu"><button onClick={() => { setOptionsOpen(false); setHistoryScreenOpen(true); }}>Canvas library <span>↗</span></button><button onClick={exportCanvas}>Export canvas JSON <span>↓</span></button><button onClick={() => { setOptionsOpen(false); if (window.confirm("Clear this canvas from local storage?")) { localStorage.removeItem("nanogpt-canvas-state"); setReferences(initialReferences); setGenerated(null); setPrompt(""); setNotice("Local canvas cleared"); } }}>Clear local canvas <span>⌫</span></button></div>}</div>
         </div>
       </header>
 
       <section className="workspace">
         <aside className="tool-rail">
-          <div className="node-insert-wrap"><ToolButton label="Insert node" active onClick={() => setNodeMenuOpen((value) => !value)}><Plus size={20} strokeWidth={2.5} /></ToolButton>{nodeMenuOpen && <div className="node-insert-menu"><button onClick={() => { setNodeMenuOpen(false); fileInputRef.current?.click(); }}><ImageIcon size={14} /><span>Image node</span><small>PNG, JPG, WEBP</small></button><button onClick={addVideoInput}><span className="video-glyph">▶</span><span>Video node</span><small>MP4, WEBM, MOV</small></button><button onClick={addTextNode}><AtSign size={14} /><span>Text node</span><small>Prompt instruction</small></button></div>}</div>
+          <div className="node-insert-wrap"><ToolButton label="Insert node" active onClick={() => setNodeMenuOpen((value) => !value)}><Plus size={20} strokeWidth={2.5} /></ToolButton>{nodeMenuOpen && <div className="node-insert-menu"><button onClick={() => insertMediaNode("image")}><ImageIcon size={14} /><span>Image node</span><small>Insert into canvas</small></button><button onClick={() => insertMediaNode("video")}><span className="video-glyph">▶</span><span>Video node</span><small>Insert into canvas</small></button><button onClick={addTextNode}><AtSign size={14} /><span>Text node</span><small>Prompt instruction</small></button></div>}</div>
           <div className="rail-divider" />
-          <ToolButton label="History" active={historyOpen} onClick={() => setHistoryOpen((value) => !value)}><History size={17} /></ToolButton>
+          <ToolButton label="Canvas library" active={historyScreenOpen} onClick={() => setHistoryScreenOpen(true)}><History size={17} /></ToolButton>
           <ToolButton label="Move canvas" active={activeTool === "hand"} onClick={() => setActiveTool("hand")}><Hand size={17} /></ToolButton>
           <ToolButton label="Select nodes" active={activeTool === "select"} onClick={() => setActiveTool("select")}><MousePointer2 size={17} /></ToolButton>
           <div className="rail-spacer" />
@@ -461,8 +501,8 @@ export default function Home() {
           <div className="canvas-world" style={{ transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${zoom / 100})` }}>
           <svg className="connector-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <defs><linearGradient id="blueLine" x1="0" x2="1"><stop stopColor="#4b96ff" stopOpacity=".15" /><stop offset=".55" stopColor="#77b7ff" stopOpacity=".9" /><stop offset="1" stopColor="#c6e5ff" stopOpacity=".35" /></linearGradient></defs>
-            {visibleReferences.map((reference) => { const position = nodePositions[reference.id] || defaultPositions[reference.id] || { x: 9.6, y: 50 }; return <path key={reference.id} d={`M ${position.x + 28} ${position.y + 7} C ${position.x + 38} ${position.y + 7}, 45 40, 54 42`} fill="none" stroke="url(#blueLine)" strokeWidth=".22" />; })}
-            <circle cx="54" cy="42" r=".6" fill="#141c27" stroke="#83c3ff" strokeWidth=".22" />
+            {visibleReferences.map((reference) => { const position = nodePositions[reference.id] || defaultPositions[reference.id] || { x: 9.6, y: 50 }; const output = nodePositions.output || defaultPositions.output; const connectionId = `${reference.id}-output`; return !brokenConnections.includes(connectionId) && <path key={connectionId} d={`M ${position.x + 28} ${position.y + 7} C ${position.x + 38} ${position.y + 7}, ${output.x - 8} ${output.y + 16}, ${output.x} ${output.y + 18}`} fill="none" stroke="url(#blueLine)" strokeWidth=".22" onDoubleClick={() => toggleConnection(connectionId)} />; })}
+            {visibleReferences.map((reference) => { const position = nodePositions[reference.id] || defaultPositions[reference.id] || { x: 9.6, y: 50 }; const output = nodePositions.output || defaultPositions.output; const connectionId = `${reference.id}-output`; return <circle key={`${connectionId}-cut`} cx={(position.x + output.x + 28) / 2} cy={(position.y + output.y + 25) / 2} r=".42" fill={brokenConnections.includes(connectionId) ? "#d5947c" : "#141c27"} stroke="#83c3ff" strokeWidth=".16" onDoubleClick={() => toggleConnection(connectionId)} />; })}
           </svg>
 
           <div className="canvas-title"><span className="tiny-image-icon"><ImageIcon size={13} /></span><span>References</span><Info size={13} /></div>
@@ -475,7 +515,7 @@ export default function Home() {
             {references.length === 0 && <button className="empty-node" onClick={() => fileInputRef.current?.click()}><Upload size={20} /><span>Drop references here</span><small>PNG, JPG or WEBP</small></button>}
           </div>
 
-          <div className="output-column" onPointerDown={(event) => event.stopPropagation()}>
+          <div className={`output-column canvas-node ${selectedNode === "output" ? "is-selected" : ""}`} style={{ left: `${nodePositions.output?.x ?? defaultPositions.output.x}%`, top: `${nodePositions.output?.y ?? defaultPositions.output.y}%` }} onPointerDown={(event) => startNodeDrag(event, "output")} onPointerMove={moveNode} onPointerUp={endNodeDrag} onPointerCancel={endNodeDrag}>
             <div className="canvas-title"><span className="tiny-image-icon"><ImageIcon size={13} /></span><span>{generated ? "Generated image" : "Generate image"}</span><Info size={13} /></div>
             <div className={`generated-card ${isGenerating ? "is-generating" : ""}`}>
               {resultSource ? <img src={resultSource} alt="Generated result" className="result-image" /> : <div className="result-placeholder"><div className="placeholder-orb orb-one" /><div className="placeholder-orb orb-two" /><div className="placeholder-person"><span /><b /><i /></div><span className="placeholder-copy">{isGenerating ? "nanoGPT" : "RESULT"}</span></div>}
