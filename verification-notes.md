@@ -13,3 +13,7 @@ The desktop preview shows the canvas world, draggable reference cards, dynamic b
 ## Browser interaction verification
 
 The live preview was opened and tested. The settings modal opens with API key, model, and output format controls. The history panel opens and shows an empty-state message when no snapshot exists. The output Crop action activates Edit mode and exposes Preserve identity and Warm light prompt actions. These interactions rendered correctly in the connected browser.
+
+## Comment-driven verification
+
+The new canvas name input updates the header and persists in local storage. The insert-node menu exposes Image, Video, and Text node actions; inserting a Text node visibly adds a text card and appends its instruction to the prompt. The top meter now prioritizes accumulated provider-reported spend and generation count, with provider balance shown when returned. The canvas wheel handler and +/−/0 keyboard shortcuts control zoom.

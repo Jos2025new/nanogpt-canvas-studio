@@ -43,6 +43,8 @@ type Reference = {
   kind: string;
   tone: string;
   image?: string;
+  nodeType?: "image" | "video" | "text";
+  text?: string;
 };
 
 type GeneratedImage = {
@@ -104,7 +106,9 @@ async function compressImage(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.82);
 }
 
-function ArtPreview({ tone, image, compact = false }: { tone: string; image?: string; compact?: boolean }) {
+function ArtPreview({ tone, image, compact = false, nodeType = "image", text }: { tone: string; image?: string; compact?: boolean; nodeType?: Reference["nodeType"]; text?: string }) {
+  if (nodeType === "video" && image) return <video className="art-image" src={image} muted autoPlay loop playsInline aria-label="Video reference" />;
+  if (nodeType === "text") return <div className="text-node-preview"><AtSign size={18} /><span>{text || "Text instruction node"}</span></div>;
   if (image) return <img className="art-image" src={image} alt="Referencia cargada" />;
   return (
     <div className={`art-preview art-${tone} ${compact ? "art-compact" : ""}`} aria-hidden="true">
@@ -132,7 +136,7 @@ function CanvasReferenceCard({ reference, onRemove, onAdd }: { reference: Refere
           <MoreHorizontal size={15} />
         </button>
       </div>
-      <ArtPreview tone={reference.tone} image={reference.image} />
+      <ArtPreview tone={reference.tone} image={reference.image} nodeType={reference.nodeType} text={reference.text} />
       {onAdd && (
         <button className="node-add" aria-label="Añadir conexión" onClick={onAdd}>
           <Plus size={14} />
@@ -155,6 +159,7 @@ export default function Home() {
   const [prompt, setPrompt] = useState("Generate a character with the appearance of @Image1 in the scene from @Image3, with the color tone referencing @Image2.");
   const [selectedFormat, setSelectedFormat] = useState("1376x768");
   const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem("nanogpt-model") || "hidream");
+  const [canvasName, setCanvasName] = useState(() => localStorage.getItem("nanogpt-canvas-name") || "Untitled canvas");
   const [apiKey, setApiKey] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
@@ -173,6 +178,9 @@ export default function Home() {
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
   const [autoMode, setAutoMode] = useState(true);
   const [editMode, setEditMode] = useState(false);
+  const [nodeMenuOpen, setNodeMenuOpen] = useState(false);
+  const [spent, setSpent] = useState(() => Number(localStorage.getItem("nanogpt-canvas-spent") || 0));
+  const [generationCount, setGenerationCount] = useState(() => Number(localStorage.getItem("nanogpt-canvas-generations") || 0));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragOriginRef = useRef({ x: 0, y: 0, nodeX: 0, nodeY: 0 });
@@ -186,6 +194,15 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("nanogpt-model", selectedModel);
   }, [selectedModel]);
+
+  useEffect(() => {
+    localStorage.setItem("nanogpt-canvas-name", canvasName);
+  }, [canvasName]);
+
+  useEffect(() => {
+    localStorage.setItem("nanogpt-canvas-spent", String(spent));
+    localStorage.setItem("nanogpt-canvas-generations", String(generationCount));
+  }, [spent, generationCount]);
 
   useEffect(() => {
     const saved = localStorage.getItem("nanogpt-canvas-state");
@@ -223,6 +240,9 @@ export default function Home() {
         event.preventDefault();
         removeReference(selectedNode);
       }
+      if (event.key === "+" || event.key === "=") setZoom((value) => Math.min(130, value + 8));
+      if (event.key === "-") setZoom((value) => Math.max(45, value - 8));
+      if (event.key === "0") setZoom(78);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -306,20 +326,24 @@ export default function Home() {
     setDraggingCanvas(false);
   }
 
+  function handleCanvasWheel(event: React.WheelEvent) {
+    event.preventDefault();
+    setZoom((value) => Math.max(45, Math.min(130, value - event.deltaY * 0.08)));
+  }
+
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     commit();
     setNotice("Preparing references…");
     try {
-      const uploaded = await Promise.all(
-        Array.from(files).slice(0, 3).map(async (file) => ({
-          id: createId(),
-          name: file.name,
-          kind: "Uploaded reference",
-          tone: ["portrait", "studio", "fullbody"][Math.floor(Math.random() * 3)],
-          image: await compressImage(file),
-        })),
-      );
+      const uploaded = await Promise.all(Array.from(files).slice(0, 3).map(async (file) => ({
+        id: createId(),
+        name: file.name,
+        kind: file.type.startsWith("video/") ? "Video reference" : "Uploaded reference",
+        tone: ["portrait", "studio", "fullbody"][Math.floor(Math.random() * 3)],
+        nodeType: file.type.startsWith("video/") ? "video" as const : "image" as const,
+        image: file.type.startsWith("video/") ? URL.createObjectURL(file) : await compressImage(file),
+      })));
       setReferences((current) => [...current, ...uploaded].slice(-3));
       setNotice(`${uploaded.length} reference${uploaded.length > 1 ? "s" : ""} ready`);
     } catch {
@@ -328,6 +352,23 @@ export default function Home() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
+
+  function addTextNode() {
+    commit();
+    const id = createId();
+    const node: Reference = { id, name: "Text instruction", kind: "Prompt note", tone: "studio", nodeType: "text", text: "Preserve the subject identity and lighting." };
+    setReferences((current) => [...current, node].slice(-3));
+    setNodePositions((current) => ({ ...current, [id]: { x: 9.6, y: 42.4 } }));
+    setPrompt((current) => `${current} ${node.text}`);
+    setNodeMenuOpen(false);
+    setNotice("Text node added");
+  }
+
+  function addVideoInput() {
+    setNodeMenuOpen(false);
+    setNotice("Choose a video file to add a video node");
+    fileInputRef.current?.click();
+  }
 
   const removeReference = (id: string) => {
     commit();
@@ -357,7 +398,7 @@ export default function Home() {
         model: selectedModel.trim() || "hidream",
         prompt: prompt.trim(),
         size: selectedFormat as "1376x768" | "1024x1024" | "768x1376" | "auto",
-        imageDataUrls: references.filter((reference) => reference.image).map((reference) => reference.image as string).slice(0, 3),
+        imageDataUrls: references.filter((reference) => reference.nodeType !== "video" && reference.nodeType !== "text" && reference.image?.startsWith("data:image/")).map((reference) => reference.image as string).slice(0, 3),
       });
       setGenerated({
         url: result.imageUrl,
@@ -366,8 +407,11 @@ export default function Home() {
         cost: result.cost,
         remainingBalance: result.remainingBalance,
       });
+      const reportedCost = typeof result.cost === "number" ? result.cost : null;
+      setGenerationCount((value) => value + 1);
+      if (reportedCost !== null) setSpent((value) => value + reportedCost);
       setChatNote("Your image is ready. Want to iterate on the scene?");
-      setNotice(result.remainingBalance == null ? "Generation complete" : `${result.remainingBalance.toFixed(2)} credits remaining`);
+      setNotice(reportedCost !== null ? `Generation complete · +${reportedCost.toFixed(4)} spent` : "Generation complete · provider cost unavailable");
     } catch (error) {
       const message = error instanceof Error ? error.message : "nanoGPT could not complete this request";
       setChatNote("I couldn't generate that one yet.");
@@ -379,7 +423,7 @@ export default function Home() {
 
   return (
     <main className="studio-shell">
-      <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(event) => void handleFiles(event.target.files)} />
+      <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" multiple onChange={(event) => void handleFiles(event.target.files)} />
 
       <header className="topbar">
         <div className="brand-cluster">
@@ -388,9 +432,9 @@ export default function Home() {
           <span className="brand-name">Create from Reference</span>
           <span className="cloud-dot" title="Saved locally" />
         </div>
-        <div className="topbar-center"><span className="topbar-file"><ImageIcon size={14} /> Untitled canvas</span><span className="topbar-divider" /><span className="save-state">{notice}</span></div>
+        <div className="topbar-center"><span className="topbar-file"><ImageIcon size={14} /><input className="canvas-name-input" aria-label="Canvas name" value={canvasName} onChange={(event) => setCanvasName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></span><span className="topbar-divider" /><span className="save-state">{notice}</span></div>
         <div className="topbar-actions">
-          <div className="credit-pill"><Sparkles size={14} /><span>{generated?.remainingBalance?.toFixed(0) ?? "171"}</span></div>
+          <div className="credit-pill" title="Suma de costes reportados por nanoGPT en este canvas"><Sparkles size={14} /><span>Spent {spent > 0 ? spent.toFixed(4) : "—"}</span><small>{generationCount} gen.</small>{generated?.remainingBalance != null && <small>Bal {generated.remainingBalance.toFixed(2)}</small>}</div>
           <button className="new-chat" onClick={() => { commit(); setPrompt(""); setGenerated(null); setChatNote("What shall we create today?"); setSelectedNode(null); setNotice("New canvas"); }}><MessageSquarePlus size={14} /> New chat <span className="beta-tag">Beta</span></button>
           <button className="icon-button" aria-label="Canvas settings" onClick={() => setConfigOpen(true)}><Settings2 size={16} /></button>
           <button className="icon-button" aria-label="More options"><MoreHorizontal size={17} /></button>
@@ -399,7 +443,7 @@ export default function Home() {
 
       <section className="workspace">
         <aside className="tool-rail">
-          <ToolButton label="Add reference" active onClick={() => fileInputRef.current?.click()}><Plus size={20} strokeWidth={2.5} /></ToolButton>
+          <div className="node-insert-wrap"><ToolButton label="Insert node" active onClick={() => setNodeMenuOpen((value) => !value)}><Plus size={20} strokeWidth={2.5} /></ToolButton>{nodeMenuOpen && <div className="node-insert-menu"><button onClick={() => { setNodeMenuOpen(false); fileInputRef.current?.click(); }}><ImageIcon size={14} /><span>Image node</span><small>PNG, JPG, WEBP</small></button><button onClick={addVideoInput}><span className="video-glyph">▶</span><span>Video node</span><small>MP4, WEBM, MOV</small></button><button onClick={addTextNode}><AtSign size={14} /><span>Text node</span><small>Prompt instruction</small></button></div>}</div>
           <div className="rail-divider" />
           <ToolButton label="History" active={historyOpen} onClick={() => setHistoryOpen((value) => !value)}><History size={17} /></ToolButton>
           <ToolButton label="Move canvas" active={activeTool === "hand"} onClick={() => setActiveTool("hand")}><Hand size={17} /></ToolButton>
@@ -412,7 +456,7 @@ export default function Home() {
           <div className="zoom-control" title={`Zoom ${zoom}%`}><input aria-label="Canvas zoom" type="range" min="45" max="130" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /><span>{zoom}%</span></div>
         </aside>
 
-        <div ref={canvasRef} className={`canvas-area ${showGrid ? "grid-on" : ""} ${draggingCanvas ? "is-panning" : ""}`} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>
+        <div ref={canvasRef} className={`canvas-area ${showGrid ? "grid-on" : ""} ${draggingCanvas ? "is-panning" : ""}`} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onWheel={handleCanvasWheel}>
           <div className="canvas-status"><span className="status-live" /> {activeTool === "hand" ? "Pan mode" : "Select mode"}<span className="status-separator">·</span>{zoom}%</div>
           <div className="canvas-world" style={{ transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${zoom / 100})` }}>
           <svg className="connector-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
