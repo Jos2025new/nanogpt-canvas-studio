@@ -28,6 +28,28 @@ export const appRouter = router({
   }),
 
   nanogpt: router({
+    models: publicProcedure.input(z.object({ apiKey: z.string().trim().min(1).max(512) })).query(async ({ input }) => {
+      let response: Response;
+      try {
+        response = await fetch("https://nano-gpt.com/api/v1/image-models?detailed=true", {
+          headers: { Authorization: `Bearer ${input.apiKey}` },
+          signal: AbortSignal.timeout(20_000),
+        });
+      } catch {
+        throw new TRPCError({ code: "TIMEOUT", message: "Could not load nanoGPT models right now." });
+      }
+      const payload = await response.json().catch(() => ({} as Record<string, unknown>)) as Record<string, any>;
+      if (!response.ok) {
+        const providerMessage = payload?.error?.message || payload?.message || `nanoGPT returned ${response.status}`;
+        throw new TRPCError({ code: "BAD_REQUEST", message: String(providerMessage).slice(0, 320) });
+      }
+      const models = Array.isArray(payload) ? payload : payload.models || payload.data || [];
+      return models.map((item: any) => ({
+        id: String(item.id || item.model || item.name || "").trim(),
+        name: String(item.name || item.id || item.model || "").trim(),
+        resolutions: Array.isArray(item.supported_parameters?.resolutions) ? item.supported_parameters.resolutions.map(String) : [],
+      })).filter((item: { id: string }) => item.id);
+    }),
     generate: publicProcedure.input(nanoGptInput).mutation(async ({ input }) => {
       const body: Record<string, unknown> = {
         model: input.model,
