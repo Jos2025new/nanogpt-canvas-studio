@@ -23,3 +23,7 @@ The new canvas name input updates the header and persists in local storage. The 
 The History rail now opens a full-screen Canvas Library instead of a popover; it has filter, Grid/List view, current canvas cards, and Open canvas actions. The More options button now opens real actions for Canvas library, JSON export, and clearing local state. The preview confirms the output node is positioned in the canvas with connection cut markers, while the zoom thumb is visually reduced.
 
 The browser verification also confirmed the insert menu creates an Image node directly in the canvas, selects it, and reports “Image node inserted in canvas”; it no longer routes that action to the file attachment picker.
+
+## Library redesign verification
+
+The library now renders as a compact, scrollable screen with a restrained header, search field, status and sort selects, Grid/List toggle, bulk-selection controls, and per-canvas Open/Rename/Delete icon actions. Browser verification confirmed the compact card row and List mode switch. The single visible canvas leaves intentional breathing room; additional canvases stack into the scroll container.

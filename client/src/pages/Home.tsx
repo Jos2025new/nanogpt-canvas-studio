@@ -25,6 +25,7 @@ import {
   Redo2,
   RotateCcw,
   RefreshCw,
+  Search as SearchIcon,
   Send,
   Settings2,
   Sparkles,
@@ -187,6 +188,11 @@ export default function Home() {
   const [brokenConnections, setBrokenConnections] = useState<string[]>([]);
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryView, setLibraryView] = useState<"grid" | "list">("grid");
+  const [librarySort, setLibrarySort] = useState<"recent" | "cost" | "nodes">("recent");
+  const [libraryStatus, setLibraryStatus] = useState<"all" | "generated" | "drafts">("all");
+  const [selectedLibraryKeys, setSelectedLibraryKeys] = useState<string[]>([]);
+  const [deletedLibraryKeys, setDeletedLibraryKeys] = useState<string[]>([]);
+  const [libraryNames, setLibraryNames] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragOriginRef = useRef({ x: 0, y: 0, nodeX: 0, nodeY: 0 });
@@ -455,10 +461,29 @@ export default function Home() {
 
   const resultSource = generated?.url || generated?.dataUrl;
 
+  function renameLibraryEntry(key: string, fallback: string) {
+    const nextName = window.prompt("Canvas name", libraryNames[key] || fallback);
+    if (nextName?.trim()) setLibraryNames((current) => ({ ...current, [key]: nextName.trim() }));
+  }
+
+  function deleteLibraryEntries(keys: string[]) {
+    if (!keys.length || !window.confirm(`Delete ${keys.length} canvas${keys.length > 1 ? "es" : ""} from this library?`)) return;
+    setDeletedLibraryKeys((current) => Array.from(new Set([...current, ...keys])));
+    setSelectedLibraryKeys([]);
+  }
+
+  function openLibraryEntry(item: CanvasState & { key: string; label: string }) {
+    restore(item);
+    setCanvasName(libraryNames[item.key] || item.label);
+    setHistoryScreenOpen(false);
+    setNotice("Canvas restored");
+  }
+
   if (historyScreenOpen) {
-    const entries = [{ ...snapshot(), label: `${canvasName} · current` }, ...history.slice().reverse().map((item, index) => ({ ...item, label: `${item.references.length} references · version ${history.length - index}` }))];
-    const filteredEntries = entries.filter((item) => `${item.label} ${item.prompt}`.toLowerCase().includes(libraryQuery.toLowerCase()));
-    return <main className="library-screen"><header className="library-header"><button className="back-button" onClick={() => setHistoryScreenOpen(false)}>← Back to canvas</button><div><span className="eyebrow">Workspace</span><h1>Canvas library</h1><p>Browse, filter and restore the canvases you have created in this tab.</p></div><button className="primary-button" onClick={() => { setHistoryScreenOpen(false); setNotice("New canvas"); }}>+ New canvas</button></header><div className="library-toolbar"><input aria-label="Filter canvases" value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="Filter canvases…" /><div className="view-toggle"><button className={libraryView === "grid" ? "selected" : ""} onClick={() => setLibraryView("grid")}>Grid</button><button className={libraryView === "list" ? "selected" : ""} onClick={() => setLibraryView("list")}>List</button></div></div><section className={`canvas-library ${libraryView}`}>{filteredEntries.map((item, index) => <article className="library-card" key={`${item.label}-${index}`}><div className="library-card-preview"><div className="library-card-dots" /><div className="library-mini-node" /><div className="library-mini-output" /></div><div className="library-card-copy"><strong>{item.label}</strong><span>{item.prompt.slice(0, 96)}{item.prompt.length > 96 ? "…" : ""}</span><small>{item.references.length} nodes · {item.generated ? "Generated result" : "Draft"}</small></div><button onClick={() => { restore(item); setCanvasName(item.label.replace(/ · current| · version \d+/, "")); setHistoryScreenOpen(false); setNotice("Canvas restored"); }}>Open canvas</button></article>)}</section>{filteredEntries.length === 0 && <div className="library-empty"><History size={28} /><h2>No matching canvases</h2><p>Try another filter or create a new canvas.</p></div>}</main>;
+    const entries = [{ ...snapshot(), key: "current", label: canvasName, cost: spent, generations: generationCount }, ...history.slice().reverse().map((item, index) => ({ ...item, key: `version-${history.length - index}`, label: `Canvas version ${history.length - index}`, cost: item.generated?.cost || 0, generations: item.generated ? 1 : 0 }))].filter((item) => !deletedLibraryKeys.includes(item.key));
+    const filteredEntries = entries.filter((item) => (libraryStatus === "all" || (libraryStatus === "generated" ? Boolean(item.generated) : !item.generated)) && `${libraryNames[item.key] || item.label} ${item.prompt}`.toLowerCase().includes(libraryQuery.toLowerCase())).sort((a, b) => librarySort === "cost" ? b.cost - a.cost : librarySort === "nodes" ? b.references.length - a.references.length : 0);
+    const allVisibleSelected = filteredEntries.length > 0 && filteredEntries.every((item) => selectedLibraryKeys.includes(item.key));
+    return <main className="library-screen"><header className="library-header"><button className="back-button" onClick={() => setHistoryScreenOpen(false)}>← Canvas</button><div><span className="eyebrow">Workspace</span><h1>Canvas library</h1><span className="library-count">{filteredEntries.length} canvas{filteredEntries.length === 1 ? "" : "es"}</span></div><button className="primary-button" onClick={() => { setHistoryScreenOpen(false); setNotice("New canvas"); }}>+ New</button></header><div className="library-toolbar"><label className="library-search"><SearchIcon size={14} /><input aria-label="Filter canvases" value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="Search canvases…" /></label><div className="library-filters"><select aria-label="Canvas status" value={libraryStatus} onChange={(event) => setLibraryStatus(event.target.value as typeof libraryStatus)}><option value="all">All</option><option value="generated">Generated</option><option value="drafts">Drafts</option></select><select aria-label="Sort canvases" value={librarySort} onChange={(event) => setLibrarySort(event.target.value as typeof librarySort)}><option value="recent">Recent</option><option value="cost">Highest cost</option><option value="nodes">Most nodes</option></select><div className="view-toggle"><button className={libraryView === "grid" ? "selected" : ""} onClick={() => setLibraryView("grid")}>Grid</button><button className={libraryView === "list" ? "selected" : ""} onClick={() => setLibraryView("list")}>List</button></div></div></div><div className="library-bulkbar"><label><input type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedLibraryKeys(allVisibleSelected ? [] : filteredEntries.map((item) => item.key))} /> Select visible</label>{selectedLibraryKeys.length > 0 && <><span>{selectedLibraryKeys.length} selected</span><button onClick={() => deleteLibraryEntries(selectedLibraryKeys)}><Trash2 size={13} /> Delete</button></>}</div><section className={`canvas-library ${libraryView}`}>{filteredEntries.map((item) => { const itemName = libraryNames[item.key] || item.label; return <article className={`library-card ${selectedLibraryKeys.includes(item.key) ? "is-selected" : ""}`} key={item.key}><div className="library-card-main"><input type="checkbox" checked={selectedLibraryKeys.includes(item.key)} onChange={() => setSelectedLibraryKeys((current) => current.includes(item.key) ? current.filter((key) => key !== item.key) : [...current, item.key])} /><div className="library-card-icon"><ImageIcon size={15} /></div><div className="library-card-copy"><strong title={itemName}>{itemName}</strong><span>{item.references.length} nodes · {item.generated ? "Generated" : "Draft"}</span></div></div><div className="library-card-data"><span title="Provider-reported cost"><Sparkles size={12} /> {item.cost > 0 ? item.cost.toFixed(4) : "—"}</span><span>{item.generations} gen.</span></div><div className="library-card-actions"><button title="Open canvas" aria-label={`Open ${itemName}`} onClick={() => openLibraryEntry(item)}><ArrowUpRight size={14} /></button><button title="Rename canvas" aria-label={`Rename ${itemName}`} onClick={() => renameLibraryEntry(item.key, itemName)}><Pencil size={13} /></button><button title="Delete canvas" aria-label={`Delete ${itemName}`} onClick={() => deleteLibraryEntries([item.key])}><Trash2 size={13} /></button></div></article>; })}</section>{filteredEntries.length === 0 && <div className="library-empty"><History size={24} /><h2>No matching canvases</h2><p>Try another search or filter.</p></div>}</main>;
   }
 
   return (
